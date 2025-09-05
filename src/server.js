@@ -1,6 +1,7 @@
 const fastify = require('fastify');
 const rateLimit = require('@fastify/rate-limit');
 const sensible = require('@fastify/sensible');
+const cors = require('@fastify/cors');
 const swagger = require('@fastify/swagger');
 const swaggerUI = require('@fastify/swagger-ui');
 const fs = require('fs');
@@ -18,7 +19,8 @@ const app = fastify({
     transport: {
       target: 'pino/file',
       options: { destination: path.join(logsDir, 'access.log'), mkdir: true }
-    }
+    },
+    timestamp: () => `,"time":"${new Date().toISOString()}"`
   },
   bodyLimit: 1024 * 10, // 10KB body limit to mitigate abuse
   ajv: {
@@ -33,17 +35,34 @@ const app = fastify({
 });
 
 app.register(sensible);
+app.register(cors, {
+  origin: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+});
 
 app.register(rateLimit, {
   global: true,
   max: 100, // 100 requests per minute per IP by default
   timeWindow: '1 minute',
   ban: 0,
+  hook: 'preHandler',
   addHeaders: {
     'x-ratelimit-limit': true,
     'x-ratelimit-remaining': true,
     'x-ratelimit-reset': true,
+    'ratelimit-limit': true,
+    'ratelimit-remaining': true,
+    'ratelimit-reset': true,
     'retry-after': true
+  }
+  ,
+  addHeadersOnExceeding: {
+    'x-ratelimit-limit': true,
+    'x-ratelimit-remaining': true,
+    'x-ratelimit-reset': true,
+    'ratelimit-limit': true,
+    'ratelimit-remaining': true,
+    'ratelimit-reset': true
   }
 });
 
@@ -65,6 +84,22 @@ app.get('/openapi.yaml', async (req, reply) => {
   const content = fs.readFileSync(specPath, 'utf8');
   logAccess('/openapi.yaml', null, 'YAML', 200);
   reply.type('application/yaml').send(content);
+});
+
+// Serve favicon.ico from project root if present
+app.get('/favicon.ico', async (req, reply) => {
+  try {
+    const iconPath = path.join(__dirname, '..', 'favicon.ico');
+    if (fs.existsSync(iconPath)) {
+      logAccess('/favicon.ico', null, 'ICO', 200);
+      reply.type('image/x-icon');
+      return fs.createReadStream(iconPath);
+    }
+    return reply.code(404).send();
+  } catch (e) {
+    app.log.error({ e }, 'favicon error');
+    return reply.code(500).send();
+  }
 });
 
 // Utility to log request and response payloads
@@ -198,6 +233,21 @@ app.route({
     }
   }
 });
+
+// Test-only route to assert rate limit headers on exceed
+if (process.env.NODE_ENV === 'test') {
+  app.get('/api/v1/test/ratelimit', {
+    config: {
+      rateLimit: {
+        max: 1,
+        timeWindow: '1 minute',
+        hook: 'onRequest'
+      }
+    }
+  }, async (req, reply) => {
+    return { ok: true };
+  });
+}
 
 app.route({
   method: 'POST',

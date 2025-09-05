@@ -13,6 +13,8 @@ servers:
 tags:
   - name: sudoku
     description: Sudoku operations
+  - name: system
+    description: Service endpoints
 components:
   schemas:
     SudokuGrid:
@@ -247,6 +249,22 @@ paths:
                 properties:
                   valid: { type: boolean }
                   reason: { type: string }
+  /healthz:
+    get:
+      tags: [system]
+      summary: Health check
+      description: Returns 200 when the service is ready.
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
   /api/v1/sudoku/explain:
     post:
       tags: [sudoku]

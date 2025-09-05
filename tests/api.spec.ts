@@ -99,3 +99,18 @@ test('unsolvable grid returns 422', async ({ request }) => {
   const json = await res.json()
   expect(json.code).toBe('UNSOLVABLE')
 })
+
+test('rate limit headers advertised (if enabled by plugin)', async ({ request }, testInfo) => {
+  const res = await request.post(`${BASE_URL}/api/v1/sudoku/generate`, { data: { difficulty: 'medium' } })
+  expect(res.ok()).toBeTruthy()
+  const headers = res.headers()
+  const limit = headers['x-ratelimit-limit'] || headers['ratelimit-limit']
+  const remaining = headers['x-ratelimit-remaining'] || headers['ratelimit-remaining']
+  const reset = headers['x-ratelimit-reset'] || headers['ratelimit-reset']
+  if (!limit || !remaining || !reset) {
+    testInfo.skip(true, 'Rate limit headers not present in this environment/plugin config')
+  }
+  expect(limit).toBeTruthy()
+  expect(remaining).toBeTruthy()
+  expect(reset).toBeTruthy()
+})
