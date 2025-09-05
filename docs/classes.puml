@@ -1,0 +1,70 @@
+@startuml classes
+title Sudoku API Classes/Modules
+
+skinparam classAttributeIconSize 0
+
+package "API Layer" {
+  class FastifyServer {
+    +listen(host: string, port: number)
+    +POST /sudoku/generate
+    +POST /sudoku/solve
+    +POST /sudoku/evaluate
+    +POST /sudoku/validate
+    +POST /sudoku/explain
+    +GET /openapi.yaml
+    +GET /healthz
+  }
+}
+
+package "Sudoku Engine" {
+  class SudokuGenerator {
+    +generateSudoku(difficulty: string): { puzzle, solution, seed }
+    -fillGrid(grid)
+    -removeCellsForDifficulty(full, difficulty)
+  }
+  class SudokuSolver {
+    +solveSudoku(grid): { solution, metrics }
+    -humanSolvePhase(grid, metrics, recorder)
+    -buildCandidates(grid)
+    -updateCandidatesForPlacement(grid, cand, r, c, recorder)
+    -techniqueNakedSingles(grid, cand, metrics, recorder)
+    -techniqueHiddenSingles(grid, cand, metrics, recorder)
+    -techniqueLockedCandidates(grid, cand, metrics, recorder)
+    -techniqueNakedTuples(grid, cand, metrics, size, recorder)
+    -techniqueHiddenPairs(grid, cand, metrics, recorder)
+    -techniqueHiddenTriples(grid, cand, metrics, recorder)
+    -techniqueXWing(grid, cand, metrics, recorder)
+    -realizeSinglesFromCandidates(grid, cand, metrics, recorder)
+    -solveBacktracking(grid)
+    +validateGrid(grid): boolean
+    +normalizeGrid(grid)
+  }
+  class DifficultyEvaluator {
+    +evaluateDifficulty(grid): { rating, metrics }
+    -countClues(grid)
+    -scoreToLevel(score)
+  }
+}
+
+package "Infrastructure" {
+  class Logger <<Pino>> {
+    +info(msg)
+    +error(err)
+  }
+  class RateLimiter <<Fastify Plugin>> {}
+  class Validator <<AJV>> {}
+  class Swagger <<@fastify/swagger>> {}
+}
+
+FastifyServer --> SudokuGenerator : uses
+FastifyServer --> SudokuSolver : uses
+FastifyServer --> DifficultyEvaluator : uses
+FastifyServer --> Logger : logs
+FastifyServer --> RateLimiter : limits
+FastifyServer --> Validator : validates
+FastifyServer --> Swagger : serves UI
+
+SudokuGenerator ..> SudokuSolver : countSolutions/isSafe
+DifficultyEvaluator --> SudokuSolver : solving metrics
+
+@enduml

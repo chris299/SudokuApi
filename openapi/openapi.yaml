@@ -1,0 +1,297 @@
+openapi: 3.0.3
+info:
+  title: Sudoku API
+  version: 1.0.0
+  description: |
+    API to generate, solve, validate and evaluate Sudokus.
+    - Adjustable difficulty for generation
+    - Solver returns solution and basic metrics
+    - Difficulty evaluation returns a level and score
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: sudoku
+    description: Sudoku operations
+components:
+  schemas:
+    SudokuGrid:
+      type: array
+      minItems: 9
+      maxItems: 9
+      items:
+        type: array
+        minItems: 9
+        maxItems: 9
+        items:
+          type: integer
+          minimum: 0
+          maximum: 9
+      example:
+        - [5,3,0,0,7,0,0,0,0]
+        - [6,0,0,1,9,5,0,0,0]
+        - [0,9,8,0,0,0,0,6,0]
+        - [8,0,0,0,6,0,0,0,3]
+        - [4,0,0,8,0,3,0,0,1]
+        - [7,0,0,0,2,0,0,0,6]
+        - [0,6,0,0,0,0,2,8,0]
+        - [0,0,0,4,1,9,0,0,5]
+        - [0,0,0,0,8,0,0,7,9]
+    DifficultyLevel:
+      type: string
+      enum: [easy, medium, hard, expert]
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          description: Human-readable details
+      required: [error, code]
+    ExplainStep:
+      type: object
+      properties:
+        technique: { type: string }
+        placements:
+          type: array
+          items:
+            type: object
+            properties:
+              r: { type: integer }
+              c: { type: integer }
+              n: { type: integer }
+            required: [r, c, n]
+        eliminations:
+          type: array
+          items:
+            type: object
+            properties:
+              r: { type: integer }
+              c: { type: integer }
+              n: { type: integer }
+            required: [r, c, n]
+      required: [technique]
+paths:
+  /api/v1/sudoku/generate:
+    post:
+      tags: [sudoku]
+      summary: Generate a Sudoku puzzle
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                difficulty:
+                  $ref: '#/components/schemas/DifficultyLevel'
+                solutionIncluded:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Generated puzzle
+          headers:
+            X-RateLimit-Limit:
+              schema: { type: string }
+            X-RateLimit-Remaining:
+              schema: { type: string }
+            X-RateLimit-Reset:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [puzzle, difficulty]
+                properties:
+                  puzzle:
+                    $ref: '#/components/schemas/SudokuGrid'
+                  solution:
+                    $ref: '#/components/schemas/SudokuGrid'
+                  difficulty:
+                    $ref: '#/components/schemas/DifficultyLevel'
+                  seed:
+                    type: string
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/sudoku/solve:
+    post:
+      tags: [sudoku]
+      summary: Solve a Sudoku puzzle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [puzzle]
+              additionalProperties: false
+              properties:
+                puzzle:
+                  $ref: '#/components/schemas/SudokuGrid'
+      responses:
+        '200':
+          description: Solution and metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [solution]
+                properties:
+                  solution:
+                    $ref: '#/components/schemas/SudokuGrid'
+                  metrics:
+                    type: object
+                    properties:
+                      steps: { type: integer, minimum: 0 }
+                      backtracks: { type: integer, minimum: 0 }
+                      techniquesUsed: { type: array, items: { type: string } }
+        '400':
+          description: Invalid grid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unsolvable puzzle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/sudoku/evaluate:
+    post:
+      tags: [sudoku]
+      summary: Evaluate puzzle difficulty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [puzzle]
+              additionalProperties: false
+              properties:
+                puzzle:
+                  $ref: '#/components/schemas/SudokuGrid'
+      responses:
+        '200':
+          description: Difficulty rating and metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rating]
+                properties:
+                  rating:
+                    type: object
+                    required: [level, score]
+                    properties:
+                      level:
+                        $ref: '#/components/schemas/DifficultyLevel'
+                      score:
+                        type: number
+                  metrics:
+                    type: object
+                    properties:
+                      steps: { type: integer, minimum: 0 }
+                      backtracks: { type: integer, minimum: 0 }
+                      techniquesUsed: { type: array, items: { type: string } }
+        '400':
+          description: Invalid grid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/sudoku/validate:
+    post:
+      tags: [sudoku]
+      summary: Validate a Sudoku grid shape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [puzzle]
+              additionalProperties: false
+              properties:
+                puzzle:
+                  $ref: '#/components/schemas/SudokuGrid'
+      responses:
+        '200':
+          description: Shape validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid: { type: boolean }
+                  reason: { type: string }
+  /api/v1/sudoku/explain:
+    post:
+      tags: [sudoku]
+      summary: Explain solving steps for a Sudoku puzzle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [puzzle]
+              additionalProperties: false
+              properties:
+                puzzle:
+                  $ref: '#/components/schemas/SudokuGrid'
+      responses:
+        '200':
+          description: Step-by-step techniques with final solution
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [solution, steps]
+                properties:
+                  solution:
+                    $ref: '#/components/schemas/SudokuGrid'
+                  steps:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ExplainStep'
+                  metrics:
+                    type: object
+                    properties:
+                      steps: { type: integer, minimum: 0 }
+                      backtracks: { type: integer, minimum: 0 }
+                      techniquesUsed: { type: array, items: { type: string } }
+        '400':
+          description: Invalid grid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

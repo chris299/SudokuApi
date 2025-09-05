@@ -1,0 +1,358 @@
+const fastify = require('fastify');
+const rateLimit = require('@fastify/rate-limit');
+const sensible = require('@fastify/sensible');
+const swagger = require('@fastify/swagger');
+const swaggerUI = require('@fastify/swagger-ui');
+const fs = require('fs');
+const path = require('path');
+
+const { generateSudoku } = require('./sudoku.generator');
+const { solveSudoku, validateGrid, normalizeGrid, hasConflicts } = require('./sudoku.solver');
+const { evaluateDifficulty } = require('./sudoku.difficulty');
+
+const logsDir = path.join(__dirname, '..', 'logs');
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+
+const app = fastify({
+  logger: {
+    transport: {
+      target: 'pino/file',
+      options: { destination: path.join(logsDir, 'access.log'), mkdir: true }
+    }
+  },
+  bodyLimit: 1024 * 10, // 10KB body limit to mitigate abuse
+  ajv: {
+    customOptions: {
+      removeAdditional: 'all',
+      useDefaults: true,
+      coerceTypes: true,
+      allErrors: true,
+      strict: false
+    }
+  }
+});
+
+app.register(sensible);
+
+app.register(rateLimit, {
+  global: true,
+  max: 100, // 100 requests per minute per IP by default
+  timeWindow: '1 minute',
+  ban: 0,
+  addHeaders: {
+    'x-ratelimit-limit': true,
+    'x-ratelimit-remaining': true,
+    'x-ratelimit-reset': true,
+    'retry-after': true
+  }
+});
+
+// Serve OpenAPI spec and Swagger UI
+app.register(swagger, {
+  mode: 'static',
+  specification: {
+    path: path.join(__dirname, '..', 'openapi', 'openapi.yaml'),
+  }
+});
+app.register(swaggerUI, {
+  routePrefix: '/docs',
+  uiConfig: { docExpansion: 'list', deepLinking: true },
+});
+
+// Raw OpenAPI file
+app.get('/openapi.yaml', async (req, reply) => {
+  const specPath = path.join(__dirname, '..', 'openapi', 'openapi.yaml');
+  const content = fs.readFileSync(specPath, 'utf8');
+  logAccess('/openapi.yaml', null, 'YAML', 200);
+  reply.type('application/yaml').send(content);
+});
+
+// Utility to log request and response payloads
+function logAccess(route, reqBody, resBody, statusCode = 200) {
+  app.log.info({
+    route,
+    statusCode,
+    request: reqBody,
+    response: resBody
+  });
+}
+
+// Health endpoint for readiness checks
+app.get('/healthz', async (req, reply) => {
+  const res = { ok: true };
+  logAccess('/healthz', null, res, 200);
+  return res;
+});
+
+const gridSchema = {
+  type: 'array',
+  minItems: 9,
+  maxItems: 9,
+  items: {
+    type: 'array',
+    minItems: 9,
+    maxItems: 9,
+    items: { type: 'integer', minimum: 0, maximum: 9 }
+  }
+};
+
+const difficultyEnum = { type: 'string', enum: ['easy', 'medium', 'hard', 'expert'] };
+
+app.route({
+  method: 'POST',
+  url: '/api/v1/sudoku/generate',
+  schema: {
+    body: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        difficulty: difficultyEnum,
+        solutionIncluded: { type: 'boolean', default: false }
+      }
+    },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          puzzle: gridSchema,
+          solution: gridSchema,
+          difficulty: difficultyEnum,
+          seed: { type: 'string' }
+        },
+        required: ['puzzle', 'difficulty']
+      }
+    }
+  },
+  handler: async (req, reply) => {
+    const { difficulty = 'medium', solutionIncluded = false } = req.body || {};
+    try {
+      const { puzzle, solution, seed } = generateSudoku(difficulty);
+      const res = {
+        puzzle,
+        difficulty,
+        ...(solutionIncluded ? { solution } : {}),
+        seed
+      };
+      logAccess('/api/v1/sudoku/generate', req.body, res, 200);
+      return res;
+    } catch (err) {
+      app.log.error({ err }, 'Generation error');
+      const res = { error: 'GenerationFailed', code: 'GENERATION_FAILED', details: err.message };
+      logAccess('/api/v1/sudoku/generate', req.body, res, 500);
+      return reply.code(500).send(res);
+    }
+  }
+});
+
+app.route({
+  method: 'POST',
+  url: '/api/v1/sudoku/solve',
+  schema: {
+    body: { type: 'object', properties: { puzzle: gridSchema }, required: ['puzzle'], additionalProperties: false },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          solution: gridSchema,
+          metrics: {
+            type: 'object',
+            properties: {
+              steps: { type: 'integer', minimum: 0 },
+              backtracks: { type: 'integer', minimum: 0 },
+              techniquesUsed: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['steps', 'backtracks']
+          }
+        },
+        required: ['solution']
+      }
+    }
+  },
+  handler: async (req, reply) => {
+    const { puzzle } = req.body;
+    if (!validateGrid(puzzle)) {
+      const res = { error: 'InvalidGrid', code: 'INVALID_GRID', details: 'Grid must be 9x9 with integers 0-9' };
+      logAccess('/api/v1/sudoku/solve', req.body, res, 400);
+      return reply.code(400).send(res);
+    }
+    if (hasConflicts(puzzle)) {
+      const res = { error: 'Unsolvable', code: 'UNSOLVABLE', details: 'Puzzle has conflicts (duplicates in row/col/box)' };
+      logAccess('/api/v1/sudoku/solve', req.body, res, 422);
+      return reply.code(422).send(res);
+    }
+    try {
+      const { solution, metrics } = solveSudoku(normalizeGrid(puzzle));
+      if (!solution) {
+        const res = { error: 'Unsolvable', code: 'UNSOLVABLE', details: 'Puzzle has no solution' };
+        logAccess('/api/v1/sudoku/solve', req.body, res, 422);
+        return reply.code(422).send(res);
+      }
+      const res = { solution, metrics };
+      logAccess('/api/v1/sudoku/solve', req.body, res, 200);
+      return res;
+    } catch (err) {
+      app.log.error({ err }, 'Solve error');
+      const res = { error: 'SolveFailed', code: 'SOLVE_FAILED', details: err.message };
+      logAccess('/api/v1/sudoku/solve', req.body, res, 500);
+      return reply.code(500).send(res);
+    }
+  }
+});
+
+app.route({
+  method: 'POST',
+  url: '/api/v1/sudoku/explain',
+  schema: {
+    body: { type: 'object', properties: { puzzle: gridSchema }, required: ['puzzle'], additionalProperties: false },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          solution: gridSchema,
+          steps: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                technique: { type: 'string' },
+                placements: { type: 'array', items: { type: 'object', properties: { r: { type: 'integer' }, c: { type: 'integer' }, n: { type: 'integer' } }, required: ['r','c','n'] } },
+                eliminations: { type: 'array', items: { type: 'object', properties: { r: { type: 'integer' }, c: { type: 'integer' }, n: { type: 'integer' } }, required: ['r','c','n'] } }
+              },
+              required: ['technique']
+            }
+          },
+          metrics: {
+            type: 'object',
+            properties: {
+              steps: { type: 'integer', minimum: 0 },
+              backtracks: { type: 'integer', minimum: 0 },
+              techniquesUsed: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['steps', 'backtracks']
+          }
+        },
+        required: ['solution', 'steps']
+      }
+    }
+  },
+  handler: async (req, reply) => {
+    const { puzzle } = req.body;
+    if (!validateGrid(puzzle)) {
+      const res = { error: 'InvalidGrid', code: 'INVALID_GRID', details: 'Grid must be 9x9 with integers 0-9' };
+      logAccess('/api/v1/sudoku/explain', req.body, res, 400);
+      return reply.code(400).send(res);
+    }
+    if (hasConflicts(puzzle)) {
+      const res = { error: 'Unsolvable', code: 'UNSOLVABLE', details: 'Puzzle has conflicts (duplicates in row/col/box)' };
+      logAccess('/api/v1/sudoku/explain', req.body, res, 422);
+      return reply.code(422).send(res);
+    }
+    try {
+      const { solution, metrics, steps } = solveSudoku(normalizeGrid(puzzle), { explain: true });
+      const res = { solution, steps, metrics };
+      logAccess('/api/v1/sudoku/explain', req.body, { stepsCount: steps?.length || 0 }, 200);
+      return res;
+    } catch (err) {
+      app.log.error({ err }, 'Explain error');
+      const res = { error: 'ExplainFailed', code: 'EXPLAIN_FAILED', details: err.message };
+      logAccess('/api/v1/sudoku/explain', req.body, res, 500);
+      return reply.code(500).send(res);
+    }
+  }
+});
+
+app.route({
+  method: 'POST',
+  url: '/api/v1/sudoku/evaluate',
+  schema: {
+    body: { type: 'object', properties: { puzzle: gridSchema }, required: ['puzzle'], additionalProperties: false },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          rating: { type: 'object', properties: { level: difficultyEnum, score: { type: 'number' } }, required: ['level', 'score'] },
+          metrics: {
+            type: 'object',
+            properties: {
+              steps: { type: 'integer', minimum: 0 },
+              backtracks: { type: 'integer', minimum: 0 },
+              techniquesUsed: { type: 'array', items: { type: 'string' } }
+            },
+            required: ['steps', 'backtracks']
+          }
+        },
+        required: ['rating']
+      }
+    }
+  },
+  handler: async (req, reply) => {
+    const { puzzle } = req.body;
+    if (!validateGrid(puzzle)) {
+      const res = { error: 'InvalidGrid', code: 'INVALID_GRID', details: 'Grid must be 9x9 with integers 0-9' };
+      logAccess('/api/v1/sudoku/evaluate', req.body, res, 400);
+      return reply.code(400).send(res);
+    }
+    try {
+      const norm = normalizeGrid(puzzle);
+      const { rating, metrics } = evaluateDifficulty(norm);
+      const res = { rating, metrics };
+      logAccess('/api/v1/sudoku/evaluate', req.body, res, 200);
+      return res;
+    } catch (err) {
+      app.log.error({ err }, 'Evaluate error');
+      const res = { error: 'EvaluateFailed', code: 'EVALUATE_FAILED', details: err.message };
+      logAccess('/api/v1/sudoku/evaluate', req.body, res, 500);
+      return reply.code(500).send(res);
+    }
+  }
+});
+
+app.route({
+  method: 'POST',
+  url: '/api/v1/sudoku/validate',
+  schema: {
+    body: { type: 'object', properties: { puzzle: gridSchema }, required: ['puzzle'], additionalProperties: false },
+    response: {
+      200: {
+        type: 'object',
+        properties: {
+          valid: { type: 'boolean' },
+          reason: { type: 'string' }
+        },
+        required: ['valid']
+      }
+    }
+  },
+  handler: async (req, reply) => {
+    const { puzzle } = req.body;
+    const valid = validateGrid(puzzle);
+    const res = valid ? { valid } : { valid, reason: 'Grid must be 9x9 with integers 0-9' };
+    logAccess('/api/v1/sudoku/validate', req.body, res, 200);
+    return res;
+  }
+});
+
+// Global error handler to ensure consistent error responses
+app.setErrorHandler((error, req, reply) => {
+  app.log.error({ err: error }, 'Unhandled error');
+  const status = error.statusCode || 500;
+  const payload = {
+    error: error.name || 'Error',
+    code: error.code || 'INTERNAL_ERROR',
+    details: error.message || 'Internal Server Error'
+  };
+  logAccess(req.url, req.body, payload, status);
+  reply.code(status).send(payload);
+});
+
+const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+const host = process.env.HOST || '0.0.0.0';
+
+app.listen({ port, host })
+  .then(() => {
+    app.log.info(`Sudoku API listening on http://${host}:${port}`);
+  })
+  .catch((err) => {
+    app.log.error(err);
+    process.exit(1);
+  });

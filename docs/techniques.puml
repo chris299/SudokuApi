@@ -1,0 +1,118 @@
+@startuml techniques
+title Human-like Sudoku Techniques (Activity)
+
+skinparam shadowing false
+skinparam activityBorderColor #333
+skinparam activityBackgroundColor #EEE
+
+partition "Naked Single" {
+  start
+  :For each empty cell;
+  :Compute candidates;
+  if (Only one candidate?) then (yes)
+    :Place number;
+    :Record "Naked Single";
+  else (no)
+    :Next cell;
+  endif
+  stop
+}
+
+partition "Hidden Single" {
+  start
+  :For each unit (row/col/box);
+  :For each number 1..9;
+  :Find all candidate positions in unit;
+  if (Exactly one position?) then (yes)
+    :Place number at that position;
+    :Record "Hidden Single";
+  else (no)
+    :Next number;
+  endif
+  stop
+}
+
+partition "Naked Pair" {
+  start
+  :For each unit (row/col/box);
+  :Find two cells sharing the same 2 candidates;
+  if (Pair found?) then (yes)
+    :Eliminate those 2 numbers from other candidates\nin the same unit;
+    :Record "Naked Pair";
+  else (no)
+    :Next unit;
+  endif
+  stop
+}
+
+partition "Hidden Pair" {
+  start
+  :For each unit (row/col/box);
+  :For numbers 1..9, record candidate positions;
+  if (Two numbers share exactly \nthe same two positions?) then (yes)
+    :Restrict those two cells to the two numbers;
+    :Record "Hidden Pair";
+  else (no)
+    :Next unit;
+  endif
+  stop
+}
+
+partition "Naked Triple" {
+  start
+  :For each unit (row/col/box);
+  :Find three cells whose candidates are\nexactly 3 identical numbers;
+  if (Triple found?) then (yes)
+    :Eliminate these numbers from other cells\nin the unit;
+    :Record "Naked Triple";
+  else (no)
+    :Next unit;
+  endif
+  stop
+}
+
+partition "Hidden Triple" {
+  start
+  :For each unit (row/col/box);
+  :Find three numbers whose candidate positions\nare exactly the same three cells;
+  if (Hidden triple found?) then (yes)
+    :Restrict those three cells to only\nthose three numbers;
+    :Record "Hidden Triple";
+  else (no)
+    :Next unit;
+  endif
+  stop
+}
+
+partition "X-Wing" {
+  start
+  :For each number n=1..9;
+  :Find two rows where n appears in exactly two columns\n(with the same two columns);
+  if (Found?) then (yes)
+    :Eliminate n from those two columns in\nall other rows;
+  else (no)
+    :Try column-based symmetric search;
+  endif
+  :Record "X-Wing" (row/col);
+  stop
+}
+
+partition "Locked Candidates (Pointing/Claiming)" {
+  start
+  :Pointing: In a box, if a number's\ncandidates lie in one row/col,
+  :Eliminate that number from same row/col\noutside the box;
+  :Claiming: In a row/col, if a number's\ncandidates lie in one box,
+  :Eliminate that number from other cells\nin that box;
+  :Record "Locked Candidates";
+  stop
+}
+
+partition "Fallback Backtracking" {
+  start
+  :If no human progress and puzzle incomplete;
+  :Apply DFS/backtracking to complete solution;
+  :Record "Backtracking";
+  stop
+}
+
+@enduml

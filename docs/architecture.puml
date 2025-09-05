@@ -1,0 +1,47 @@
+@startuml
+title Sudoku API Architecture (Simplified)
+
+skinparam componentStyle rectangle
+
+actor Client
+
+node "Sudoku API Service" as Service {
+  [Fastify Server] as Fastify
+  [Rate Limiter] as Rate
+  [Validation (AJV)] as Ajv
+  [Logging (Pino)] as Log
+  package "Sudoku Engine" {
+    [Generator]
+    [Solver]
+    [Evaluator]
+  }
+}
+
+folder "Docs" {
+  [OpenAPI Spec]
+  [PlantUML]
+}
+
+Client --> Fastify : HTTP/JSON
+Fastify --> Rate : enforce limits
+Fastify --> Ajv : validate requests
+Fastify --> Log : request/response logs
+Fastify --> Generator : POST /generate
+Fastify --> Solver : POST /solve
+Fastify --> Evaluator : POST /evaluate
+Fastify --> Solver : POST /validate (shape)
+
+[OpenAPI Spec] -[hidden]-> Fastify
+[PlantUML] -[hidden]-> Service
+
+note bottom of Log
+  Writes structured logs to logs/access.log
+  Includes request body and results/errors
+end note
+
+note right of Rate
+  100 req/min/IP
+  Adds X-RateLimit headers
+end note
+
+@enduml

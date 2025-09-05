@@ -1,0 +1,36 @@
+{
+  "name": "sudokuapi",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon --watch src --ext js --exec node src/server.js",
+    "test": "jest --runInBand",
+    "test:e2e": "playwright test"
+  },
+  "keywords": [
+    "sudoku",
+    "api",
+    "fastify"
+  ],
+  "author": "",
+  "license": "MIT",
+  "description": "Sudoku API service (generate, solve, evaluate)",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/sensible": "^6.0.3",
+    "@fastify/swagger": "^9.5.1",
+    "@fastify/swagger-ui": "^5.2.3",
+    "fastify": "^5.6.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "jest": "^30.1.3",
+    "nodemon": "^3.1.10"
+  }
+}
