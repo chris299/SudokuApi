@@ -1,0 +1,39 @@
+[functions]
+  node_bundler = "esbuild"
+  # Keep these as external deps so their static assets resolve correctly
+  external_node_modules = ["@fastify/swagger-ui", "@fastify/swagger"]
+  included_files = [
+    "openapi/openapi.yaml",
+    "favicon.ico"
+  ]
+
+# Local dev server configuration
+[dev]
+  # Run your Fastify dev server
+  command = "npm run dev"
+  # Port your app listens on (src/server.js defaults to 3000)
+  targetPort = 3000
+  # Port for the Netlify Dev proxy (what you open in browser)
+  port = 8080
+  # Port for the functions server (avoid collisions with 3999)
+  functionsPort = 9999
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/docs/*"
+  to = "/.netlify/functions/api/docs/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/healthz"
+  to = "/.netlify/functions/api/healthz"
+  status = 200
+
+[[redirects]]
+  from = "/openapi.yaml"
+  to = "/.netlify/functions/api/openapi.yaml"
+  status = 200

@@ -14,6 +14,7 @@ additional_docs
 # Optional npm cache directory
 .npm
 .npmrc
+.npm-cache
 # Optional eslint cache
 .eslintcache
 # Optional stylelint cache
@@ -22,3 +23,6 @@ additional_docs
 .node_repl_history
 # Output of 'npm pack'
 *.tgz
+
+# Local Netlify folder
+.netlify
