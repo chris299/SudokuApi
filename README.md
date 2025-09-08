@@ -41,15 +41,32 @@ Logs are written to `logs/access.log`.
 
 ## Tests
 
-Unit tests (Jest):
-```bash
-npm test
-```
+- Unit (Jest):
+  - `npm test`
 
-API tests (Playwright):
-```bash
-npm run test:e2e
-```
+- API/E2E (Playwright):
+  - First time: `npx playwright install`
+  - Default (self‑contained):
+    - `npm run test:e2e`
+    - Spawns the server on `127.0.0.1:3100` and runs tests.
+  - Against an external server (don’t spawn):
+    - Set env and run tests. Examples:
+      - PowerShell (Windows):
+        - Netlify Dev on 8080
+          - `npx netlify dev`
+          - `$env:E2E_EXTERNAL='1'; $env:E2E_BASE_URL='http://127.0.0.1:8080'; npm run test:e2e`
+        - Node server on 3000
+          - `npm run dev`
+          - `$env:E2E_EXTERNAL='1'; $env:E2E_BASE_URL='http://127.0.0.1:3000'; npm run test:e2e`
+      - bash/zsh:
+        - Netlify Dev on 8080
+          - `npx netlify dev`
+          - `E2E_EXTERNAL=1 E2E_BASE_URL=http://127.0.0.1:8080 npm run test:e2e`
+        - Node server on 3000
+          - `npm run dev`
+          - `E2E_EXTERNAL=1 E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e`
+  - Optional:
+    - Change internal spawn port: `E2E_PORT=3200 npm run test:e2e`
 
 ## CI (GitHub Actions)
 
@@ -75,4 +92,3 @@ The workflow runs on push and can be manually triggered. It installs dependencie
 ## Reference Material
 
 Domain-specific heuristics were guided by https://www.heise.de/hintergrund/Wie-man-mit-einem-Python-Programm-die-Schwierigkeit-von-Sudokus-bewertet-10291201.html?seite=all and their Repo https://github.com/Periculum/Sudoku-evaluating-program .
-

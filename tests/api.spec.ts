@@ -4,17 +4,21 @@ import path from 'path'
 import process from 'process'
 
 let serverProc: any
-const PORT = 3100
-const BASE_URL = `http://127.0.0.1:${PORT}`
+const DEFAULT_PORT = 3100
+const PORT = Number(process.env.E2E_PORT || DEFAULT_PORT)
+const EXTERNAL = process.env.E2E_EXTERNAL === '1' || !!process.env.E2E_BASE_URL
+const BASE_URL = process.env.E2E_BASE_URL || `http://127.0.0.1:${PORT}`
 
 test.beforeAll(async ({ request }) => {
-  serverProc = spawn('node', [path.join('src', 'server.js')], {
-    env: { ...process.env, PORT: `${PORT}`, NODE_ENV: 'test' },
-    stdio: 'inherit'
-  })
-  // Wait for /healthz to respond
+  if (!EXTERNAL) {
+    serverProc = spawn('node', [path.join('src', 'server.js')], {
+      env: { ...process.env, PORT: `${PORT}`, NODE_ENV: 'test' },
+      stdio: 'inherit'
+    })
+  }
+  // Wait for /healthz to respond (works for both external and spawned server)
   const start = Date.now()
-  while (Date.now() - start < 5000) {
+  while (Date.now() - start < 10_000) {
     try {
       const res = await request.get(`${BASE_URL}/healthz`)
       if (res.ok()) break
@@ -24,7 +28,7 @@ test.beforeAll(async ({ request }) => {
 })
 
 test.afterAll(async () => {
-  if (serverProc) {
+  if (serverProc && !EXTERNAL) {
     serverProc.kill()
   }
 })
